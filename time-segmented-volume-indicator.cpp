@@ -11,7 +11,7 @@ SCSFExport scsf_CustomTSVStudy(SCStudyInterfaceRef sc)
     {
         sc.GraphName = "Custom TSV Study";
         sc.StudyDescription = "This is a custom implementation of the TSV study.";
-        sc.AutoLoop = 1;
+        sc.AutoLoop = 0;  // Disable automatic looping
 
         TSV.Name = "TSV";
         TSV.DrawStyle = DRAWSTYLE_BAR;
@@ -23,53 +23,27 @@ SCSFExport scsf_CustomTSVStudy(SCStudyInterfaceRef sc)
         SMA.DrawStyle = DRAWSTYLE_LINE;
         SMA.PrimaryColor = RGB(0,255,0);
 
-        sc.Input[0].Name = "Length";
-        sc.Input[0].SetInt(12);
+        sc.Input[0].Name = "MA Length";
+        sc.Input[0].SetInt(6);
         sc.Input[0].SetIntLimits(1, INT_MAX);
 
-        sc.Input[1].Name = "MA Length";
-        sc.Input[1].SetInt(6);
-        sc.Input[1].SetIntLimits(1, INT_MAX);
-
         return;
     }
 
-    int length = sc.Input[0].GetInt();
-    int maLength = sc.Input[1].GetInt();
+    int maLength = sc.Input[0].GetInt();
+    int currentIndex = sc.ArraySize - 1; // Index of the current bar
 
-    // Check if there is enough data
-    if (sc.ArraySize < length)
+    // Check if there is at least one candle to process
+    if (currentIndex < 1)
         return;
 
-    for (int idx = length; idx < sc.ArraySize; idx++)
-    {
-        if (idx == length)  // Initial full calculation for the first sum
-        {
-            for (int backIdx = idx - 1; backIdx >= idx - length; backIdx--)
-            {
-                float volume = sc.Volume[backIdx];
-                float closeChange = sc.Close[backIdx] - sc.Close[backIdx-1];
+    // Calculate TSV for the current bar
+    float closeChange = sc.Close[currentIndex] - sc.Close[currentIndex - 1];
+    TSV[currentIndex] = closeChange * sc.Volume[currentIndex];
 
-                TSV[idx] = closeChange*volume;
+    // Set the color of the current bar
+    TSV.DataColor[currentIndex] = TSV[currentIndex] >= 0 ? TSV.PrimaryColor : TSV.SecondaryColor;
 
-            }
-        }
-        else  // Incremental update for subsequent sums
-        {
-            int newestIdx = idx - 1;
-            int oldestIdx = idx - length - 1;
-
-            float volumeNew = sc.Volume[newestIdx];
-            float closeChangeNew = sc.Close[newestIdx] - sc.Close[newestIdx-1];
-
-            TSV[idx] = closeChangeNew*volumeNew;
-
-        }
-
-
-        // Set the color of the bar
-        TSV.DataColor[idx] = TSV[idx] >= 0 ? TSV.PrimaryColor : TSV.SecondaryColor;
-    }
-
+    // Calculate the moving average of TSV
     sc.SimpleMovAvg(TSV, SMA, maLength);
 }
