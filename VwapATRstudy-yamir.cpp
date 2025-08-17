@@ -1,4 +1,6 @@
 #include "sierrachart.h"
+#include <limits>
+#include <math.h>
 
 SCDLLName("ATR Distance from VWAP with Bar Colors and ATR Display (Daily ATR)")
 
@@ -79,7 +81,7 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 
         // Input for Text Vertical Offset
         TextVerticalOffsetTicks.Name = "Text Vertical Offset (Ticks)";
-        TextVerticalOffsetTicks.SetInt(100); // Default offset is 100 ticks above the high of the last bar
+        TextVerticalOffsetTicks.SetInt(100); // User-requested offset; will be clamped at runtime
         TextVerticalOffsetTicks.SetIntLimits(0, INT_MAX);
 
         // Subgraph for coloring bars based on price action and ATR distance
@@ -114,9 +116,10 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     sc.Subgraph[2].PrimaryColor = LowerBandColor.GetColor();
 
     // Variables for storing computed values
-    float CurrentPrice = sc.Close[sc.Index];
-    float OpenPrice = sc.Open[sc.Index];
-    float ClosePrice = sc.Close[sc.Index];
+    const int idx = sc.Index;
+    float CurrentPrice = sc.Close[idx];
+    float OpenPrice = sc.Open[idx];
+    float ClosePrice = sc.Close[idx];
     float VWAPValue = 0.0f;
     float DailyATRValue = 0.0f;
 
@@ -124,26 +127,21 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     SCFloatArray VWAPArray;
     if (!sc.GetStudyArrayUsingID(VWAPStudyID.GetStudyID(), VWAPSubgraphIndex.GetInt(), VWAPArray))
     {
-        // Unable to retrieve VWAP data; exit
-        if (sc.Index == sc.ArraySize - 1)
-        {
+        if (idx == sc.ArraySize - 1)
             sc.AddMessageToLog("Unable to retrieve VWAP data. Check VWAP Study ID and Subgraph Index.", 1);
-        }
-
         return;
     }
 
     // Ensure that the VWAP value is valid
-    VWAPValue = VWAPArray[sc.Index];
+    VWAPValue = VWAPArray[idx];
     if (VWAPValue == 0.0f)
     {
-        if (sc.Index == sc.ArraySize - 1)
+        if (idx == sc.ArraySize - 1)
         {
             SCString MessageText;
-            MessageText.Format("VWAP value is zero at index %d.", sc.Index);
+            MessageText.Format("VWAP value is zero at index %d.", idx);
             sc.AddMessageToLog(MessageText, 1);
         }
-
         return;
     }
 
@@ -151,32 +149,24 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     SCFloatArray ATRArray;
     if (!sc.GetStudyArrayUsingID(ATRStudyID.GetStudyID(), ATRSubgraphIndex.GetInt(), ATRArray))
     {
-        // Unable to retrieve ATR data; exit
-        if (sc.Index == sc.ArraySize - 1)
-        {
+        if (idx == sc.ArraySize - 1)
             sc.AddMessageToLog("Unable to retrieve Daily ATR data. Check ATR Study ID and Subgraph Index.", 1);
-        }
-
         return;
     }
 
     // Ensure that the Daily ATR value is valid
-    if (sc.Index == 0)
-    {
-        // No previous bar to get ATR value from
+    if (idx == 0)
         return;
-    }
 
-    DailyATRValue = ATRArray[sc.Index - 1];
+    DailyATRValue = ATRArray[idx - 1];
     if (DailyATRValue <= 0.0f)
     {
-        if (sc.Index == sc.ArraySize - 1)
+        if (idx == sc.ArraySize - 1)
         {
             SCString MessageText;
-            MessageText.Format("Daily ATR value is invalid or zero at index %d.", sc.Index);
+            MessageText.Format("Daily ATR value is invalid or zero at index %d.", idx);
             sc.AddMessageToLog(MessageText, 1);
         }
-
         return;
     }
 
@@ -191,50 +181,36 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     float LowerBand = VWAPValue - (Threshold * DailyATRValue);
 
     // Plot the bands on the chart
-    sc.Subgraph[1][sc.Index] = UpperBand;  // Overbought threshold band
-    sc.Subgraph[2][sc.Index] = LowerBand;  // Oversold threshold band
+    sc.Subgraph[1][idx] = UpperBand;  // Overbought threshold band
+    sc.Subgraph[2][idx] = LowerBand;  // Oversold threshold band
 
     // Color the bars based on price action and ATR distance
-    // Set the Subgraph value to a non-zero value to ensure the bar is colored
-    sc.Subgraph[0][sc.Index] = 1.0f;
+    sc.Subgraph[0][idx] = 1.0f; // ensure bar is "active" for coloring
 
     if (ClosePrice > OpenPrice)  // Bullish bar
     {
         if (DistanceFromVWAP > Threshold)
-        {
-            // Overbought condition: Use OverboughtBarColor
-            sc.Subgraph[0].DataColor[sc.Index] = OverboughtBarColor.GetColor();
-        }
+            sc.Subgraph[0].DataColor[idx] = OverboughtBarColor.GetColor();
         else
-        {
-            // Regular bullish bar: Use BullishBarColor
-            sc.Subgraph[0].DataColor[sc.Index] = BullishBarColor.GetColor();
-        }
+            sc.Subgraph[0].DataColor[idx] = BullishBarColor.GetColor();
     }
     else if (ClosePrice < OpenPrice)  // Bearish bar
     {
         if (DistanceFromVWAP < -Threshold)
-        {
-            // Oversold condition: Use OversoldBarColor
-            sc.Subgraph[0].DataColor[sc.Index] = OversoldBarColor.GetColor();
-        }
+            sc.Subgraph[0].DataColor[idx] = OversoldBarColor.GetColor();
         else
-        {
-            // Regular bearish bar: Use BearishBarColor
-            sc.Subgraph[0].DataColor[sc.Index] = BearishBarColor.GetColor();
-        }
+            sc.Subgraph[0].DataColor[idx] = BearishBarColor.GetColor();
     }
     else
     {
-        // Neutral bar: You can choose to set a default color or skip coloring
-        sc.Subgraph[0].DataColor[sc.Index] = BullishBarColor.GetColor();  // Example default color
+        sc.Subgraph[0].DataColor[idx] = BullishBarColor.GetColor();  // neutral default
     }
 
     // Display the ATR distance values as text above only the most recent bar
-    if (sc.Index == sc.ArraySize - 1)
+    if (idx == sc.ArraySize - 1)
     {
         // Get the current time
-        SCDateTime CurrentDateTime = sc.BaseDateTimeIn[sc.Index];
+        SCDateTime CurrentDateTime = sc.BaseDateTimeIn[idx];
         int CurrentHour = CurrentDateTime.GetHour();
         int CurrentMinute = CurrentDateTime.GetMinute();
         int TimeInMinutes = CurrentHour * 60 + CurrentMinute;
@@ -245,7 +221,7 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 
         int TargetHour, TargetMinute;
 
-        SCString refPriceLabel; // Declare outside to use in Tool.Text
+        SCString refPriceLabel;
 
         if (IsPeriodA)
         {
@@ -262,7 +238,7 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 
         // Find the previous bar with the target time
         int ReferenceBarIndex = -1;
-        for (int i = sc.Index - 1; i >= 0; --i)
+        for (int i = idx - 1; i >= 0; --i)
         {
             SCDateTime BarDateTime = sc.BaseDateTimeIn[i];
             int BarHour = BarDateTime.GetHour();
@@ -280,64 +256,75 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         {
             float ReferencePrice;
             if (IsPeriodA)
-            {
-                // Use the close of the previous 4 PM bar
-                ReferencePrice = sc.Close[ReferenceBarIndex];
-            }
-            else // IsPeriodB
-            {
-                // Use the open of the previous 9:30 AM bar
-                ReferencePrice = sc.Open[ReferenceBarIndex];
-            }
+                ReferencePrice = sc.Close[ReferenceBarIndex]; // previous 4 PM close
+            else
+                ReferencePrice = sc.Open[ReferenceBarIndex];  // previous 9:30 open
 
-            // Calculate the ATR distance to the reference price
             ATRDistanceToReferencePrice = (CurrentPrice - ReferencePrice) / DailyATRValue;
         }
         else
         {
-            // If reference bar not found, set to NaN
             ATRDistanceToReferencePrice = std::numeric_limits<float>::quiet_NaN();
         }
 
-        // Prepare the text to display
+        // -------- Adaptive text placement (tick-based, clamped) --------
+        const double tick = sc.TickSize;
+
+        // bar range & ATR in ticks (non-negative)
+        const int barRangeTicks = (int)ceil(((sc.High[idx] - sc.Low[idx]) / tick > 0.0) ? ((sc.High[idx] - sc.Low[idx]) / tick) : 0.0);
+        const int atrTicks      = (int)ceil((DailyATRValue / tick > 0.0) ? (DailyATRValue / tick) : 0.0);
+
+        // Minimum clearance (keeps text above bar/markers)
+        const int minClearanceTicks = 3;
+
+        // Reasonable upper bounds
+        const int upperFromATR = ((int)ceil(0.25 * atrTicks) > 8) ? (int)ceil(0.25 * atrTicks) : 8;
+        const int upperFromBar = ((int)ceil(0.35 * barRangeTicks) > 6) ? (int)ceil(0.35 * barRangeTicks) : 6;
+
+        // Absolute cap so text never goes too far away
+        const int absCapTicks = 16;
+
+        // maxReasonableTicks = max(minClearance, min(absCap, min(upperFromATR, upperFromBar)))
+        int smallerUpper = (upperFromATR < upperFromBar) ? upperFromATR : upperFromBar;
+        int cappedUpper  = (absCapTicks < smallerUpper) ? absCapTicks : smallerUpper;
+        int maxReasonableTicks = (minClearanceTicks > cappedUpper) ? minClearanceTicks : cappedUpper;
+
+        // Requested offset from input, clamped to [minClearance, maxReasonable]
+        int effectiveOffsetTicks = TextVerticalOffsetTicks.GetInt();
+        if (effectiveOffsetTicks < minClearanceTicks)
+            effectiveOffsetTicks = minClearanceTicks;
+        if (effectiveOffsetTicks > maxReasonableTicks)
+            effectiveOffsetTicks = maxReasonableTicks;
+
+        // Prepare and place the text
         s_UseTool Tool;
-        Tool.Clear();  // Clear previous settings
+        Tool.Clear();
         Tool.ChartNumber = sc.ChartNumber;
         Tool.DrawingType = DRAWING_TEXT;
         Tool.Region = sc.GraphRegion;
 
-        // *** Keep bar & markers visible: anchor bottom of text above the bar ***
-        Tool.TextAlignment = DT_LEFT | DT_BOTTOM; // Bottom of text sits at BeginValue (no overlap downward)
+        // Anchor bottom of text at BeginValue so it grows upward (keeps bar/markers visible)
+        Tool.TextAlignment = DT_LEFT | DT_BOTTOM;
 
-        Tool.Color = TextColor.GetColor(); // Text color from input
-        Tool.FontSize = TextFontSize.GetInt(); // Font size from input
+        Tool.Color = TextColor.GetColor();
+        Tool.FontSize = TextFontSize.GetInt();
         Tool.FontBold = 0;
-        Tool.FontBackColor = 0; // Transparent background
-        Tool.TransparencyLevel = 100;      // 0 is opaque, 100 is fully transparent
+        Tool.FontBackColor = 0;          // Transparent background
+        Tool.TransparencyLevel = 100;    // 0=opaque, 100=fully transparent
 
-        // Set LineNumber to a unique value
-        Tool.LineNumber = 123456; // Unique LineNumber to identify the drawing
-        Tool.AddMethod = UTAM_ADD_OR_ADJUST; // Update or add the drawing
+        Tool.LineNumber = 123456;
+        Tool.AddMethod = UTAM_ADD_OR_ADJUST;
 
-        // Set the position of the text at the last bar
-        Tool.BeginIndex = sc.Index;
+        Tool.BeginIndex = idx;
+        Tool.BeginValue = (float)(sc.High[idx] + tick * effectiveOffsetTicks);
 
-        // Calculate the vertical position using the configurable offset,
-        // while ensuring a small minimum clearance above the bar/markers.
-        int VerticalOffsetTicks = TextVerticalOffsetTicks.GetInt();
-        const int MinClearanceTicks = 3; // keeps text above 1.0–1.5 tick markers (triangles/stars)
-        if (VerticalOffsetTicks < MinClearanceTicks)
-            VerticalOffsetTicks = MinClearanceTicks;
-
-        Tool.BeginValue = sc.High[sc.Index] + (sc.TickSize * VerticalOffsetTicks);
-
-        // Round distances to two decimal places
-        float RoundedDistanceFromVWAP = roundf(DistanceFromVWAP * 100) / 100;
-        float RoundedATRDistanceToReferencePrice = roundf(ATRDistanceToReferencePrice * 100) / 100;
+        // Round distances to two decimals
+        float RoundedDistanceFromVWAP = roundf(DistanceFromVWAP * 100.0f) / 100.0f;
 
         // Build the text with both lines, including the reference time
         if (!_isnan(ATRDistanceToReferencePrice))
         {
+            float RoundedATRDistanceToReferencePrice = roundf(ATRDistanceToReferencePrice * 100.0f) / 100.0f;
             Tool.Text.Format("VWAP: %.2f\n%s: %.2f", RoundedDistanceFromVWAP, refPriceLabel.GetChars(), RoundedATRDistanceToReferencePrice);
         }
         else
