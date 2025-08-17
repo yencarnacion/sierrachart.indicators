@@ -305,7 +305,10 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         Tool.ChartNumber = sc.ChartNumber;
         Tool.DrawingType = DRAWING_TEXT;
         Tool.Region = sc.GraphRegion;
-        Tool.TextAlignment = DT_LEFT | DT_VCENTER; // Align text to the left
+
+        // *** Keep bar & markers visible: anchor bottom of text above the bar ***
+        Tool.TextAlignment = DT_LEFT | DT_BOTTOM; // Bottom of text sits at BeginValue (no overlap downward)
+
         Tool.Color = TextColor.GetColor(); // Text color from input
         Tool.FontSize = TextFontSize.GetInt(); // Font size from input
         Tool.FontBold = 0;
@@ -319,8 +322,13 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         // Set the position of the text at the last bar
         Tool.BeginIndex = sc.Index;
 
-        // Calculate the vertical position using the configurable offset
+        // Calculate the vertical position using the configurable offset,
+        // while ensuring a small minimum clearance above the bar/markers.
         int VerticalOffsetTicks = TextVerticalOffsetTicks.GetInt();
+        const int MinClearanceTicks = 3; // keeps text above 1.0–1.5 tick markers (triangles/stars)
+        if (VerticalOffsetTicks < MinClearanceTicks)
+            VerticalOffsetTicks = MinClearanceTicks;
+
         Tool.BeginValue = sc.High[sc.Index] + (sc.TickSize * VerticalOffsetTicks);
 
         // Round distances to two decimal places
@@ -340,4 +348,3 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         sc.UseTool(Tool);
     }
 }
-
