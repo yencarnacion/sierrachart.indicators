@@ -2,16 +2,16 @@
 #include <limits>
 #include <math.h>
 
-SCDLLName("ATR Distance from VWAP with Bar Colors and ATR Display (Daily ATR)")
+SCDLLName("ATR Distance from VWAP with Bar Colors and ATR Display (Daily ATR) + MOMOC/MOMO")
 
 SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 {
-    // Input settings
+    // -------------------- Inputs (existing) --------------------
     SCInputRef ATRStudyID = sc.Input[0];
     SCInputRef ATRSubgraphIndex = sc.Input[1];
     SCInputRef VWAPStudyID = sc.Input[2];
     SCInputRef VWAPSubgraphIndex = sc.Input[3];
-    SCInputRef OverboughtOversoldThreshold = sc.Input[4];  // Adjustable threshold input
+    SCInputRef OverboughtOversoldThreshold = sc.Input[4];
     SCInputRef UpperBandColor = sc.Input[5];
     SCInputRef LowerBandColor = sc.Input[6];
     SCInputRef BullishBarColor = sc.Input[7];
@@ -22,108 +22,126 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     SCInputRef TextFontSize = sc.Input[12];
     SCInputRef TextVerticalOffsetTicks = sc.Input[13];
 
-    // Set the default settings and inputs
+    // -------------------- New/kept inputs (MOMO) --------------------
+    SCInputRef EnableMOMO = sc.Input[14];
+    SCInputRef PreferHighsWhenBoth_UNUSED = sc.Input[15]; // kept for compatibility (unused)
+    SCInputRef ShowMOMOOutsideRTH = sc.Input[16];         // off by default
+
     if (sc.SetDefaults)
     {
-        // Study configuration
-        sc.GraphName = "ATR Distance from VWAP with Bar Colors and ATR Display (Daily ATR)";
-        sc.AutoLoop = 1;                // Automatically loop through each bar
-        sc.GraphRegion = 0;             // Draw on the main price graph
+        sc.GraphName = "ATR Distance from VWAP + MOMOC/MOMO (Event Counts, RTH)";
+        sc.AutoLoop = 1;
+        sc.UpdateAlways = 1; // intrabar updates for live MOMOC
+        sc.GraphRegion = 0;
         sc.FreeDLL = 0;
 
-        // Inputs for referencing the ATR study
         ATRStudyID.Name = "Daily ATR Study ID";
-        ATRStudyID.SetStudyID(21);      // Default to Study ID 21 (adjust as needed)
+        ATRStudyID.SetStudyID(21);
 
         ATRSubgraphIndex.Name = "Daily ATR Subgraph Index";
-        ATRSubgraphIndex.SetInt(0);    // Index of ATR within the referenced study
+        ATRSubgraphIndex.SetInt(0);
         ATRSubgraphIndex.SetIntLimits(0, 50);
 
-        // Inputs for referencing the VWAP study
         VWAPStudyID.Name = "VWAP Study ID";
-        VWAPStudyID.SetStudyID(13);      // Replace with your actual VWAP study ID
+        VWAPStudyID.SetStudyID(13);
 
         VWAPSubgraphIndex.Name = "VWAP Subgraph Index";
-        VWAPSubgraphIndex.SetInt(0);    // Index of VWAP within the referenced study
+        VWAPSubgraphIndex.SetInt(0);
         VWAPSubgraphIndex.SetIntLimits(0, 50);
 
-        // Adjustable threshold for overbought/oversold conditions
         OverboughtOversoldThreshold.Name = "Overbought/Oversold Threshold (Daily ATR Multiples)";
-        OverboughtOversoldThreshold.SetFloat(1.5f);  // Default threshold is 1.5 times Daily ATR
+        OverboughtOversoldThreshold.SetFloat(1.5f);
 
-        // Inputs for Upper and Lower Band Colors
         UpperBandColor.Name = "Upper Band Color";
-        UpperBandColor.SetColor(RGB(255, 215, 0));   // Default Gold color
-
+        UpperBandColor.SetColor(RGB(255, 215, 0));
         LowerBandColor.Name = "Lower Band Color";
-        LowerBandColor.SetColor(RGB(255, 215, 0));  // Default Gold color
+        LowerBandColor.SetColor(RGB(255, 215, 0));
 
-        // Inputs for Bar Colors
         BullishBarColor.Name = "Bullish Bar Color";
-        BullishBarColor.SetColor(RGB(0, 255, 0));    // Default Green
-
+        BullishBarColor.SetColor(RGB(0, 255, 0));
         BearishBarColor.Name = "Bearish Bar Color";
-        BearishBarColor.SetColor(RGB(255, 0, 0));    // Default Red
-
+        BearishBarColor.SetColor(RGB(255, 0, 0));
         OverboughtBarColor.Name = "Overbought Bar Color";
-        OverboughtBarColor.SetColor(RGB(0, 128, 0)); // Default Dark Green
-
+        OverboughtBarColor.SetColor(RGB(0, 128, 0));
         OversoldBarColor.Name = "Oversold Bar Color";
-        OversoldBarColor.SetColor(RGB(255, 0, 255)); // Default Magenta
+        OversoldBarColor.SetColor(RGB(255, 0, 255));
 
-        // Input for Text Color and Font Size
         TextColor.Name = "Text Color";
-        TextColor.SetColor(RGB(255, 255, 255)); // Default White
-
+        TextColor.SetColor(RGB(255, 255, 255));
         TextFontSize.Name = "Text Font Size";
-        TextFontSize.SetInt(12); // Default font size
+        TextFontSize.SetInt(12);
         TextFontSize.SetIntLimits(1, 50);
 
-        // Input for Text Vertical Offset
         TextVerticalOffsetTicks.Name = "Text Vertical Offset (Ticks)";
-        TextVerticalOffsetTicks.SetInt(100); // User-requested offset; will be clamped at runtime
+        TextVerticalOffsetTicks.SetInt(100);
         TextVerticalOffsetTicks.SetIntLimits(0, INT_MAX);
 
-        // Subgraph for coloring bars based on price action and ATR distance
+        // Price colorer
         sc.Subgraph[0].Name = "Colored Bars Based on ATR Distance and Price Action";
         sc.Subgraph[0].DrawStyle = DRAWSTYLE_COLOR_BAR;
         sc.Subgraph[0].LineWidth = 2;
-        sc.Subgraph[0].PrimaryColor = BullishBarColor.GetColor();    // Set default colors
+        sc.Subgraph[0].PrimaryColor = BullishBarColor.GetColor();
         sc.Subgraph[0].SecondaryColor = BearishBarColor.GetColor();
-        sc.Subgraph[0].SecondaryColorUsed = 1;  // Enable secondary color
+        sc.Subgraph[0].SecondaryColorUsed = 1;
         sc.Subgraph[0].DrawZeros = false;
 
-        // Subgraphs for VWAP bands (overbought/oversold thresholds)
-        sc.Subgraph[1].Name = "VWAP + Threshold * Daily ATR";      // Upper band
+        // VWAP bands
+        sc.Subgraph[1].Name = "VWAP + Threshold * Daily ATR";
         sc.Subgraph[1].DrawStyle = DRAWSTYLE_LINE;
-        sc.Subgraph[1].PrimaryColor = UpperBandColor.GetColor();  // Use color from input
+        sc.Subgraph[1].PrimaryColor = UpperBandColor.GetColor();
         sc.Subgraph[1].LineWidth = 1;
         sc.Subgraph[1].DrawZeros = false;
 
-        sc.Subgraph[2].Name = "VWAP - Threshold * Daily ATR";      // Lower band
+        sc.Subgraph[2].Name = "VWAP - Threshold * Daily ATR";
         sc.Subgraph[2].DrawStyle = DRAWSTYLE_LINE;
-        sc.Subgraph[2].PrimaryColor = LowerBandColor.GetColor();  // Use color from input
+        sc.Subgraph[2].PrimaryColor = LowerBandColor.GetColor();
         sc.Subgraph[2].LineWidth = 1;
         sc.Subgraph[2].DrawZeros = false;
+
+        // -------------- Hidden Subgraphs for counts --------------
+        sc.Subgraph[3].Name = "MOMOC High Count (per bar, RTH)";
+        sc.Subgraph[3].DrawStyle = DRAWSTYLE_IGNORE;
+        sc.Subgraph[3].DrawZeros = true;
+
+        sc.Subgraph[4].Name = "MOMOC Low Count (per bar, RTH)";
+        sc.Subgraph[4].DrawStyle = DRAWSTYLE_IGNORE;
+        sc.Subgraph[4].DrawZeros = true;
+
+        sc.Subgraph[5].Name = "MOMO Session Cum Highs (RTH)";
+        sc.Subgraph[5].DrawStyle = DRAWSTYLE_IGNORE;
+        sc.Subgraph[5].DrawZeros = true;
+
+        sc.Subgraph[6].Name = "MOMO Session Cum Lows (RTH)";
+        sc.Subgraph[6].DrawStyle = DRAWSTYLE_IGNORE;
+        sc.Subgraph[6].DrawZeros = true;
+
+        EnableMOMO.Name = "Enable MOMO/MOMOC Overlay";
+        EnableMOMO.SetYesNo(1);
+
+        PreferHighsWhenBoth_UNUSED.Name = "Prefer Highs (unused, kept for compat)";
+        PreferHighsWhenBoth_UNUSED.SetYesNo(1);
+
+        ShowMOMOOutsideRTH.Name = "Show MOMOC outside 09:30–16:00 ET (testing only)";
+        ShowMOMOOutsideRTH.SetYesNo(0);
 
         return;
     }
 
-    // Ensure that subgraph colors are updated if inputs change
-    sc.Subgraph[0].PrimaryColor = BullishBarColor.GetColor();
-    sc.Subgraph[0].SecondaryColor = BearishBarColor.GetColor();
-    sc.Subgraph[1].PrimaryColor = UpperBandColor.GetColor();
-    sc.Subgraph[2].PrimaryColor = LowerBandColor.GetColor();
+    // Sync colors if changed
+    sc.Subgraph[0].PrimaryColor  = BullishBarColor.GetColor();
+    sc.Subgraph[0].SecondaryColor= BearishBarColor.GetColor();
+    sc.Subgraph[1].PrimaryColor  = UpperBandColor.GetColor();
+    sc.Subgraph[2].PrimaryColor  = LowerBandColor.GetColor();
 
-    // Variables for storing computed values
     const int idx = sc.Index;
+
+    // -------------------- Pull VWAP & ATR --------------------
     float CurrentPrice = sc.Close[idx];
     float OpenPrice = sc.Open[idx];
     float ClosePrice = sc.Close[idx];
     float VWAPValue = 0.0f;
     float DailyATRValue = 0.0f;
 
-    // Ensure that the VWAP study data is available
     SCFloatArray VWAPArray;
     if (!sc.GetStudyArrayUsingID(VWAPStudyID.GetStudyID(), VWAPSubgraphIndex.GetInt(), VWAPArray))
     {
@@ -132,7 +150,6 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         return;
     }
 
-    // Ensure that the VWAP value is valid
     VWAPValue = VWAPArray[idx];
     if (VWAPValue == 0.0f)
     {
@@ -145,7 +162,6 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         return;
     }
 
-    // Ensure that the Daily ATR study data is available
     SCFloatArray ATRArray;
     if (!sc.GetStudyArrayUsingID(ATRStudyID.GetStudyID(), ATRSubgraphIndex.GetInt(), ATRArray))
     {
@@ -154,7 +170,6 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         return;
     }
 
-    // Ensure that the Daily ATR value is valid
     if (idx == 0)
         return;
 
@@ -170,80 +185,186 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         return;
     }
 
-    // Calculate the distance from VWAP in terms of Daily ATR
+    // -------------------- ATR distance & bands --------------------
     float DistanceFromVWAP = (CurrentPrice - VWAPValue) / DailyATRValue;
-
-    // Calculate and plot the overbought and oversold bands
     float Threshold = OverboughtOversoldThreshold.GetFloat();
 
-    // Upper and lower bands around VWAP
     float UpperBand = VWAPValue + (Threshold * DailyATRValue);
     float LowerBand = VWAPValue - (Threshold * DailyATRValue);
 
-    // Plot the bands on the chart
-    sc.Subgraph[1][idx] = UpperBand;  // Overbought threshold band
-    sc.Subgraph[2][idx] = LowerBand;  // Oversold threshold band
+    sc.Subgraph[1][idx] = UpperBand;
+    sc.Subgraph[2][idx] = LowerBand;
 
-    // Color the bars based on price action and ATR distance
-    sc.Subgraph[0][idx] = 1.0f; // ensure bar is "active" for coloring
+    // Color bars
+    sc.Subgraph[0][idx] = 1.0f;
+    if (ClosePrice > OpenPrice)
+        sc.Subgraph[0].DataColor[idx] = (DistanceFromVWAP > Threshold)
+            ? OverboughtBarColor.GetColor() : BullishBarColor.GetColor();
+    else if (ClosePrice < OpenPrice)
+        sc.Subgraph[0].DataColor[idx] = (DistanceFromVWAP < -Threshold)
+            ? OversoldBarColor.GetColor() : BearishBarColor.GetColor();
+    else
+        sc.Subgraph[0].DataColor[idx] = BullishBarColor.GetColor();
 
-    if (ClosePrice > OpenPrice)  // Bullish bar
+    // -------------------- MOMOC/MOMO event counts (RTH only) --------------------
+    // Chart must be set to US/Eastern (New York) or adjust below.
+    const SCDateTime BarDT = sc.BaseDateTimeIn[idx];
+    int Year = 0, Month = 0, Day = 0;
+    BarDT.GetDateYMD(Year, Month, Day);
+    const int DateKey = Year * 10000 + Month * 100 + Day;
+
+    const int BarHH = BarDT.GetHour();
+    const int BarMM = BarDT.GetMinute();
+    const int TMin   = BarHH * 60 + BarMM;
+
+    const bool InRTH  = (TMin >= 570 && TMin < 960); // 09:30–16:00
+    bool PrevInRTH = false;
+    if (idx > 0)
     {
-        if (DistanceFromVWAP > Threshold)
-            sc.Subgraph[0].DataColor[idx] = OverboughtBarColor.GetColor();
-        else
-            sc.Subgraph[0].DataColor[idx] = BullishBarColor.GetColor();
+        const SCDateTime PrevDT = sc.BaseDateTimeIn[idx - 1];
+        const int PrevMin = PrevDT.GetHour() * 60 + PrevDT.GetMinute();
+        PrevInRTH = (PrevMin >= 570 && PrevMin < 960);
     }
-    else if (ClosePrice < OpenPrice)  // Bearish bar
+
+    // Persistent state
+    double& SessionHigh = sc.GetPersistentDouble(1);
+    double& SessionLow  = sc.GetPersistentDouble(2);
+    int&    LastSessionDate = sc.GetPersistentInt(3);
+
+    int&    SessionCumHighs = sc.GetPersistentInt(4);
+    int&    SessionCumLows  = sc.GetPersistentInt(5);
+
+    int&    LastBarIndexRef = sc.GetPersistentInt(6);
+    double& LastSeenHighForCount = sc.GetPersistentDouble(7);
+    double& LastSeenLowForCount  = sc.GetPersistentDouble(8);
+
+    int&    PersistBarMOMOC_H = sc.GetPersistentInt(9);
+    int&    PersistBarMOMOC_L = sc.GetPersistentInt(10);
+
+    // Initialize at very first bar of full calc
+    if (idx == 0)
     {
-        if (DistanceFromVWAP < -Threshold)
-            sc.Subgraph[0].DataColor[idx] = OversoldBarColor.GetColor();
-        else
-            sc.Subgraph[0].DataColor[idx] = BearishBarColor.GetColor();
+        SessionHigh = 0.0;
+        SessionLow  = 0.0;
+        LastSessionDate = 0;
+        SessionCumHighs = 0;
+        SessionCumLows  = 0;
+        LastBarIndexRef = -1;
+        LastSeenHighForCount = 0.0;
+        LastSeenLowForCount  = 0.0;
+        PersistBarMOMOC_H = 0;
+        PersistBarMOMOC_L = 0;
+    }
+
+    const bool StartOfRTH = InRTH && (!PrevInRTH || DateKey != LastSessionDate);
+
+    if (StartOfRTH)
+    {
+        // Reset session baselines at 09:30 bar
+        SessionHigh = sc.Open[idx];
+        SessionLow  = sc.Open[idx];
+        LastSeenHighForCount = SessionHigh;
+        LastSeenLowForCount  = SessionLow;
+
+        SessionCumHighs = 0;
+        SessionCumLows  = 0;
+
+        PersistBarMOMOC_H = 0;
+        PersistBarMOMOC_L = 0;
+        LastBarIndexRef = idx;
+        LastSessionDate = DateKey;
+    }
+
+    // Begin per-bar handling (either during RTH, or outside if user wants to see MOMOC)
+    const bool AllowShowOutside = (ShowMOMOOutsideRTH.GetYesNo() != 0);
+
+    if (InRTH || AllowShowOutside)
+    {
+        // On new bar, reset per‑bar accumulators and sync "last seen" extremes to current session extremes
+        if (idx != LastBarIndexRef)
+        {
+            PersistBarMOMOC_H = 0;
+            PersistBarMOMOC_L = 0;
+            LastBarIndexRef = idx;
+
+            // Align last-seen sentinel to current session extremes
+            LastSeenHighForCount = SessionHigh;
+            LastSeenLowForCount  = SessionLow;
+        }
+
+        // Update counts only during RTH
+        if (InRTH)
+        {
+            // Straight event count: +1 each time a NEW session high/low is set
+            if (sc.High[idx] > LastSeenHighForCount)
+            {
+                PersistBarMOMOC_H += 1;
+                SessionCumHighs   += 1;
+                LastSeenHighForCount = sc.High[idx];
+                SessionHigh = sc.High[idx];
+            }
+            if (sc.Low[idx] < LastSeenLowForCount)
+            {
+                PersistBarMOMOC_L += 1;
+                SessionCumLows    += 1;
+                LastSeenLowForCount = sc.Low[idx];
+                SessionLow = sc.Low[idx];
+            }
+            LastSessionDate = DateKey;
+        }
+
+        // Save to subgraphs
+        sc.Subgraph[3][idx] = (float)PersistBarMOMOC_H;
+        sc.Subgraph[4][idx] = (float)PersistBarMOMOC_L;
+        sc.Subgraph[5][idx] = (float)SessionCumHighs;
+        sc.Subgraph[6][idx] = (float)SessionCumLows;
     }
     else
     {
-        sc.Subgraph[0].DataColor[idx] = BullishBarColor.GetColor();  // neutral default
+        // Outside RTH and not showing MOMOC: zero the per-bar display; keep session totals flat
+        sc.Subgraph[3][idx] = 0.0f;
+        sc.Subgraph[4][idx] = 0.0f;
+        if (idx > 0)
+        {
+            sc.Subgraph[5][idx] = sc.Subgraph[5][idx - 1];
+            sc.Subgraph[6][idx] = sc.Subgraph[6][idx - 1];
+        }
+        else
+        {
+            sc.Subgraph[5][idx] = 0.0f;
+            sc.Subgraph[6][idx] = 0.0f;
+        }
     }
 
-    // Display the ATR distance values as text above only the most recent bar
+    // -------------------- Build stacked text on last bar --------------------
     if (idx == sc.ArraySize - 1)
     {
-        // Get the current time
-        SCDateTime CurrentDateTime = sc.BaseDateTimeIn[idx];
-        int CurrentHour = CurrentDateTime.GetHour();
-        int CurrentMinute = CurrentDateTime.GetMinute();
+        // Reference line: 16:00 after hours, otherwise 9:30 intraday
+        int CurrentHour = BarDT.GetHour();
+        int CurrentMinute = BarDT.GetMinute();
         int TimeInMinutes = CurrentHour * 60 + CurrentMinute;
 
-        // Determine the period
-        bool IsPeriodA = (TimeInMinutes >= 960 || TimeInMinutes < 570); // After 4 PM or before 9:30 AM
-        bool IsPeriodB = (TimeInMinutes >= 570 && TimeInMinutes < 960); // After 9:30 AM and before 4 PM
+        bool IsPeriodA = (TimeInMinutes >= 960 || TimeInMinutes < 570); // After 16:00 or before 09:30
+        bool IsPeriodB = (TimeInMinutes >= 570 && TimeInMinutes < 960); // 09:30–16:00
 
         int TargetHour, TargetMinute;
-
         SCString refPriceLabel;
 
         if (IsPeriodA)
         {
-            TargetHour = 16; // 4 PM
-            TargetMinute = 0;
-            refPriceLabel = "16:00";
+            TargetHour = 16; TargetMinute = 0; refPriceLabel = "16:00";
         }
-        else // IsPeriodB
+        else
         {
-            TargetHour = 9;
-            TargetMinute = 30;
-            refPriceLabel = "9:30";
+            TargetHour = 9;  TargetMinute = 30; refPriceLabel = "9:30";
         }
 
-        // Find the previous bar with the target time
         int ReferenceBarIndex = -1;
         for (int i = idx - 1; i >= 0; --i)
         {
             SCDateTime BarDateTime = sc.BaseDateTimeIn[i];
             int BarHour = BarDateTime.GetHour();
             int BarMinute = BarDateTime.GetMinute();
-
             if (BarHour == TargetHour && BarMinute == TargetMinute)
             {
                 ReferenceBarIndex = i;
@@ -254,12 +375,7 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         float ATRDistanceToReferencePrice = 0.0f;
         if (ReferenceBarIndex >= 0)
         {
-            float ReferencePrice;
-            if (IsPeriodA)
-                ReferencePrice = sc.Close[ReferenceBarIndex]; // previous 4 PM close
-            else
-                ReferencePrice = sc.Open[ReferenceBarIndex];  // previous 9:30 open
-
+            float ReferencePrice = IsPeriodA ? sc.Close[ReferenceBarIndex] : sc.Open[ReferenceBarIndex];
             ATRDistanceToReferencePrice = (CurrentPrice - ReferencePrice) / DailyATRValue;
         }
         else
@@ -267,71 +383,91 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
             ATRDistanceToReferencePrice = std::numeric_limits<float>::quiet_NaN();
         }
 
-        // -------- Adaptive text placement (tick-based, clamped) --------
-        const double tick = sc.TickSize;
+        // Adaptive placement (same as before)
+        const double ticksize = sc.TickSize;
+        const int barRangeTicks = (int)ceil(((sc.High[idx] - sc.Low[idx]) / ticksize > 0.0) ? ((sc.High[idx] - sc.Low[idx]) / ticksize) : 0.0);
+        const int atrTicks      = (int)ceil((DailyATRValue / ticksize > 0.0) ? (DailyATRValue / ticksize) : 0.0);
 
-        // bar range & ATR in ticks (non-negative)
-        const int barRangeTicks = (int)ceil(((sc.High[idx] - sc.Low[idx]) / tick > 0.0) ? ((sc.High[idx] - sc.Low[idx]) / tick) : 0.0);
-        const int atrTicks      = (int)ceil((DailyATRValue / tick > 0.0) ? (DailyATRValue / tick) : 0.0);
-
-        // Minimum clearance (keeps text above bar/markers)
         const int minClearanceTicks = 3;
-
-        // Reasonable upper bounds
         const int upperFromATR = ((int)ceil(0.25 * atrTicks) > 8) ? (int)ceil(0.25 * atrTicks) : 8;
         const int upperFromBar = ((int)ceil(0.35 * barRangeTicks) > 6) ? (int)ceil(0.35 * barRangeTicks) : 6;
-
-        // Absolute cap so text never goes too far away
         const int absCapTicks = 16;
 
-        // maxReasonableTicks = max(minClearance, min(absCap, min(upperFromATR, upperFromBar)))
         int smallerUpper = (upperFromATR < upperFromBar) ? upperFromATR : upperFromBar;
         int cappedUpper  = (absCapTicks < smallerUpper) ? absCapTicks : smallerUpper;
         int maxReasonableTicks = (minClearanceTicks > cappedUpper) ? minClearanceTicks : cappedUpper;
 
-        // Requested offset from input, clamped to [minClearance, maxReasonable]
         int effectiveOffsetTicks = TextVerticalOffsetTicks.GetInt();
         if (effectiveOffsetTicks < minClearanceTicks)
             effectiveOffsetTicks = minClearanceTicks;
         if (effectiveOffsetTicks > maxReasonableTicks)
             effectiveOffsetTicks = maxReasonableTicks;
 
-        // Prepare and place the text
+        // Prepare the text tool
         s_UseTool Tool;
         Tool.Clear();
         Tool.ChartNumber = sc.ChartNumber;
         Tool.DrawingType = DRAWING_TEXT;
         Tool.Region = sc.GraphRegion;
-
-        // Anchor bottom of text at BeginValue so it grows upward (keeps bar/markers visible)
         Tool.TextAlignment = DT_LEFT | DT_BOTTOM;
-
         Tool.Color = TextColor.GetColor();
         Tool.FontSize = TextFontSize.GetInt();
         Tool.FontBold = 0;
-        Tool.FontBackColor = 0;          // Transparent background
-        Tool.TransparencyLevel = 100;    // 0=opaque, 100=fully transparent
-
-        Tool.LineNumber = 123456;
+        Tool.FontBackColor = 0;
+        Tool.TransparencyLevel = 100;
+        Tool.LineNumber = 123456; // update in place
         Tool.AddMethod = UTAM_ADD_OR_ADJUST;
-
         Tool.BeginIndex = idx;
-        Tool.BeginValue = (float)(sc.High[idx] + tick * effectiveOffsetTicks);
+        Tool.BeginValue = (float)(sc.High[idx] + ticksize * effectiveOffsetTicks);
 
-        // Round distances to two decimals
-        float RoundedDistanceFromVWAP = roundf(DistanceFromVWAP * 100.0f) / 100.0f;
+        // ---- Build lines in requested order: MOMOC -> MOMO -> 9:30/16:00 -> VWAP ----
+        SCString lineMOMOC;
+        SCString lineMOMO;
+        SCString lineRef;
+        SCString lineVWAP;
 
-        // Build the text with both lines, including the reference time
-        if (!_isnan(ATRDistanceToReferencePrice))
+        if (EnableMOMO.GetYesNo())
         {
-            float RoundedATRDistanceToReferencePrice = roundf(ATRDistanceToReferencePrice * 100.0f) / 100.0f;
-            Tool.Text.Format("VWAP: %.2f\n%s: %.2f", RoundedDistanceFromVWAP, refPriceLabel.GetChars(), RoundedATRDistanceToReferencePrice);
+            int momocH = (int)sc.Subgraph[3][idx];
+            int momocL = (int)sc.Subgraph[4][idx];
+
+            int momoH  = SessionCumHighs; // persistent totals
+            int momoL  = SessionCumLows;
+
+            const bool ShowNow = InRTH || (ShowMOMOOutsideRTH.GetYesNo() != 0);
+            if (ShowNow)
+                lineMOMOC.Format("MOMOC: H:%d  L:%d", momocH, momocL);
+            else
+                lineMOMOC = "MOMOC: —";
+            lineMOMO.Format("MOMO:  H:%d  L:%d", momoH, momoL);
         }
         else
         {
-            Tool.Text.Format("VWAP: %.2f\n%s: N/A", RoundedDistanceFromVWAP, refPriceLabel.GetChars());
+            lineMOMOC = "MOMOC: (disabled)";
+            lineMOMO  = "MOMO:  (disabled)";
         }
 
+        if (!_isnan(ATRDistanceToReferencePrice))
+        {
+            const float RoundedATRToRef = roundf(ATRDistanceToReferencePrice * 100.0f) / 100.0f;
+            lineRef.Format("%s: %.2f", refPriceLabel.GetChars(), RoundedATRToRef);
+        }
+        else
+        {
+            lineRef.Format("%s: N/A", refPriceLabel.GetChars());
+        }
+
+        const float RoundedDistanceFromVWAP = roundf(((sc.Close[idx] - VWAPValue) / DailyATRValue) * 100.0f) / 100.0f;
+        lineVWAP.Format("VWAP: %.2f", RoundedDistanceFromVWAP);
+
+        SCString finalText;
+        finalText.Format("%s\n%s\n%s\n%s",
+                         lineMOMOC.GetChars(),
+                         lineMOMO.GetChars(),
+                         lineRef.GetChars(),
+                         lineVWAP.GetChars());
+
+        Tool.Text = finalText;
         sc.UseTool(Tool);
     }
 }
