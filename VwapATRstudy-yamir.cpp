@@ -27,11 +27,21 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     SCInputRef PreferHighsWhenBoth_UNUSED = sc.Input[15]; // kept for compatibility (unused)
     SCInputRef ShowMOMOOutsideRTH = sc.Input[16];         // off by default
 
+    // ===== RS vs QQQ additions: inputs =====
+    SCInputRef EnableRS = sc.Input[17];
+    SCInputRef RS_OverlayStudyID = sc.Input[18];
+    SCInputRef RS_SubgraphIndex = sc.Input[19];
+    SCInputRef RS_LookbackBars = sc.Input[20];
+    SCInputRef RS_DeadbandPercent = sc.Input[21];
+    SCInputRef RS_ArrowOffsetTicks = sc.Input[22];
+    SCInputRef RS_UpColor = sc.Input[23];
+    SCInputRef RS_DownColor = sc.Input[24];
+
     if (sc.SetDefaults)
     {
-        sc.GraphName = "ATR Distance from VWAP + MOMOC/MOMO (Event Counts, RTH)";
+        sc.GraphName = "ATR Distance from VWAP + MOMOC/MOMO (Event Counts, RTH) + RS Arrows";
         sc.AutoLoop = 1;
-        sc.UpdateAlways = 1; // intrabar updates for live MOMOC
+        sc.UpdateAlways = 1; // intrabar updates for live MOMOC/RS
         sc.GraphRegion = 0;
         sc.FreeDLL = 0;
 
@@ -124,6 +134,47 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         ShowMOMOOutsideRTH.Name = "Show MOMOC outside 09:30–16:00 ET (testing only)";
         ShowMOMOOutsideRTH.SetYesNo(0);
 
+        // ===== RS vs QQQ additions: default inputs =====
+        EnableRS.Name = "RS vs QQQ: Enable";
+        EnableRS.SetYesNo(1);
+
+        RS_OverlayStudyID.Name = "RS: QQQ Overlay Study ID (Study/Price Overlay of QQQ Close)";
+        RS_OverlayStudyID.SetStudyID(0); // set this to your overlay’s ID
+
+        RS_SubgraphIndex.Name = "RS: Overlay Subgraph Index";
+        RS_SubgraphIndex.SetInt(0);
+        RS_SubgraphIndex.SetIntLimits(0, 50);
+
+        RS_LookbackBars.Name = "RS: Lookback (bars)";
+        RS_LookbackBars.SetInt(3);
+        RS_LookbackBars.SetIntLimits(1, 1000);
+
+        RS_DeadbandPercent.Name = "RS: Deadband (%) to filter noise";
+        RS_DeadbandPercent.SetFloat(0.03f);
+
+        RS_ArrowOffsetTicks.Name = "RS: Arrow Offset (ticks below low)";
+        RS_ArrowOffsetTicks.SetInt(2);
+        RS_ArrowOffsetTicks.SetIntLimits(0, 100);
+
+        RS_UpColor.Name = "RS Up Arrow Color (Stronger than QQQ)";
+        RS_UpColor.SetColor(RGB(255, 255, 255)); // white
+
+        RS_DownColor.Name = "RS Down Arrow Color (Weaker than QQQ)";
+        RS_DownColor.SetColor(RGB(255, 140, 0)); // orange
+
+        // ===== RS vs QQQ additions: subgraphs =====
+        sc.Subgraph[7].Name = "RS Up Arrow (vs QQQ)";
+        sc.Subgraph[7].DrawStyle = DRAWSTYLE_TRIANGLE_UP;
+        sc.Subgraph[7].PrimaryColor = RS_UpColor.GetColor();
+        sc.Subgraph[7].LineWidth = 3;
+        sc.Subgraph[7].DrawZeros = false;
+
+        sc.Subgraph[8].Name = "RS Down Arrow (vs QQQ)";
+        sc.Subgraph[8].DrawStyle = DRAWSTYLE_TRIANGLE_DOWN;
+        sc.Subgraph[8].PrimaryColor = RS_DownColor.GetColor();
+        sc.Subgraph[8].LineWidth = 3;
+        sc.Subgraph[8].DrawZeros = false;
+
         return;
     }
 
@@ -132,6 +183,9 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     sc.Subgraph[0].SecondaryColor= BearishBarColor.GetColor();
     sc.Subgraph[1].PrimaryColor  = UpperBandColor.GetColor();
     sc.Subgraph[2].PrimaryColor  = LowerBandColor.GetColor();
+    // ===== RS vs QQQ additions: keep arrow colors in sync =====
+    sc.Subgraph[7].PrimaryColor  = RS_UpColor.GetColor();
+    sc.Subgraph[8].PrimaryColor  = RS_DownColor.GetColor();
 
     const int idx = sc.Index;
 
@@ -335,6 +389,53 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
             sc.Subgraph[6][idx] = 0.0f;
         }
     }
+
+    // ===== RS vs QQQ additions: compute & draw arrows =====
+    if (EnableRS.GetYesNo())
+    {
+        SCFloatArray RSRef; // QQQ overlay values
+        if (!sc.GetStudyArrayUsingID(RS_OverlayStudyID.GetStudyID(), RS_SubgraphIndex.GetInt(), RSRef))
+        {
+            if (idx == sc.ArraySize - 1)
+                sc.AddMessageToLog("RS: Could not get QQQ overlay study array. Ensure 'Study/Price Overlay' is added and the Study ID/Subgraph index are correct.", 1);
+        }
+        else
+        {
+            const int N = RS_LookbackBars.GetInt();
+            // Default: 1-bar ROC vs 1-bar ROC, or N-bar ROC vs N-bar ROC
+            if (idx >= N
+                && RSRef[idx] != 0.0f && RSRef[idx - N] != 0.0f
+                && sc.Close[idx - N] != 0.0f)
+            {
+                const float symRet = (sc.Close[idx] / sc.Close[idx - N]) - 1.0f;
+                const float refRet = (RSRef[idx]     / RSRef[idx - N]) - 1.0f;
+                const float delta  = symRet - refRet;
+
+                const float deadband = RS_DeadbandPercent.GetFloat() * 0.01f; // % → fraction
+                const double y = (double)sc.Low[idx] - (double)sc.TickSize * (double)RS_ArrowOffsetTicks.GetInt();
+
+                // Clear both by default
+                sc.Subgraph[7][idx] = 0.0f; // up
+                sc.Subgraph[8][idx] = 0.0f; // down
+
+                if (delta > deadband)
+                    sc.Subgraph[7][idx] = (float)y; // yellow up
+                else if (delta < -deadband)
+                    sc.Subgraph[8][idx] = (float)y; // orange down
+            }
+            else
+            {
+                sc.Subgraph[7][idx] = 0.0f;
+                sc.Subgraph[8][idx] = 0.0f;
+            }
+        }
+    }
+    else
+    {
+        sc.Subgraph[7][idx] = 0.0f;
+        sc.Subgraph[8][idx] = 0.0f;
+    }
+    // ===== end RS vs QQQ additions =====
 
     // -------------------- Build stacked text on last bar --------------------
     if (idx == sc.ArraySize - 1)
