@@ -2,7 +2,7 @@
 #include <limits>
 #include <math.h>
 
-SCDLLName("ATR Distance from VWAP with Bar Colors and ATR Display (Daily ATR) + MOMOC/MOMO")
+SCDLLName("ATR Distance from VWAP with Bar Colors and ATR Display (Daily ATR) + Dev/DDev")
 
 SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 {
@@ -22,10 +22,10 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     SCInputRef TextFontSize = sc.Input[12];
     SCInputRef TextVerticalOffsetTicks = sc.Input[13];
 
-    // -------------------- New/kept inputs (MOMO) --------------------
-    SCInputRef EnableMOMO = sc.Input[14];
-    SCInputRef PreferHighsWhenBoth_UNUSED = sc.Input[15]; // kept for compatibility (unused)
-    SCInputRef ShowMOMOOutsideRTH = sc.Input[16];         // off by default
+    // -------------------- Dev/DDev inputs --------------------
+    SCInputRef DDevNearZeroThreshold = sc.Input[14];
+    SCInputRef DDevPositiveColor = sc.Input[15];
+    SCInputRef DDevNegativeColor = sc.Input[16];
 
     // ===== RS vs QQQ additions: inputs =====
     SCInputRef EnableRS = sc.Input[17];
@@ -36,12 +36,13 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     SCInputRef RS_ArrowOffsetTicks = sc.Input[22];
     SCInputRef RS_UpColor = sc.Input[23];
     SCInputRef RS_DownColor = sc.Input[24];
+    SCInputRef DDevNearZeroColor = sc.Input[25];
 
     if (sc.SetDefaults)
     {
-        sc.GraphName = "ATR Distance from VWAP + MOMOC/MOMO (Event Counts, RTH) + RS Arrows";
+        sc.GraphName = "ATR Distance from VWAP + Dev/DDev + RS Arrows";
         sc.AutoLoop = 1;
-        sc.UpdateAlways = 1; // intrabar updates for live MOMOC/RS
+        sc.UpdateAlways = 1; // intrabar updates for live Dev/DDev/RS
         sc.GraphRegion = 0;
         sc.FreeDLL = 0;
 
@@ -108,31 +109,39 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         sc.Subgraph[2].LineWidth = 1;
         sc.Subgraph[2].DrawZeros = false;
 
-        // -------------- Hidden Subgraphs for counts --------------
-        sc.Subgraph[3].Name = "MOMOC High Count (per bar, RTH)";
-        sc.Subgraph[3].DrawStyle = DRAWSTYLE_IGNORE;
+        // Dev/DDev subgraphs
+        sc.Subgraph[3].Name = "Dev = (Price - VWAP) / ATR";
+        sc.Subgraph[3].DrawStyle = DRAWSTYLE_LINE;
+        sc.Subgraph[3].PrimaryColor = RGB(255, 255, 255);
+        sc.Subgraph[3].LineWidth = 2;
         sc.Subgraph[3].DrawZeros = true;
 
-        sc.Subgraph[4].Name = "MOMOC Low Count (per bar, RTH)";
-        sc.Subgraph[4].DrawStyle = DRAWSTYLE_IGNORE;
+        sc.Subgraph[4].Name = "DDev = Dev - PrevDev";
+        sc.Subgraph[4].DrawStyle = DRAWSTYLE_BAR;
+        sc.Subgraph[4].PrimaryColor = RGB(86, 180, 233);   // Okabe-Ito sky blue
+        sc.Subgraph[4].SecondaryColor = RGB(213, 94, 0);   // Okabe-Ito vermillion
+        sc.Subgraph[4].SecondaryColorUsed = 1;
+        sc.Subgraph[4].LineWidth = 2;
         sc.Subgraph[4].DrawZeros = true;
 
-        sc.Subgraph[5].Name = "MOMO Session Cum Highs (RTH)";
-        sc.Subgraph[5].DrawStyle = DRAWSTYLE_IGNORE;
+        sc.Subgraph[5].Name = "DDev Zero Line";
+        sc.Subgraph[5].DrawStyle = DRAWSTYLE_LINE;
+        sc.Subgraph[5].PrimaryColor = RGB(90, 90, 90);
+        sc.Subgraph[5].LineWidth = 1;
         sc.Subgraph[5].DrawZeros = true;
 
-        sc.Subgraph[6].Name = "MOMO Session Cum Lows (RTH)";
+        sc.Subgraph[6].Name = "Unused";
         sc.Subgraph[6].DrawStyle = DRAWSTYLE_IGNORE;
-        sc.Subgraph[6].DrawZeros = true;
+        sc.Subgraph[6].DrawZeros = false;
 
-        EnableMOMO.Name = "Enable MOMO/MOMOC Overlay";
-        EnableMOMO.SetYesNo(1);
+        DDevNearZeroThreshold.Name = "DDev Near-Zero Threshold";
+        DDevNearZeroThreshold.SetFloat(0.03f);
 
-        PreferHighsWhenBoth_UNUSED.Name = "Prefer Highs (unused, kept for compat)";
-        PreferHighsWhenBoth_UNUSED.SetYesNo(1);
+        DDevPositiveColor.Name = "DDev Color Above 0";
+        DDevPositiveColor.SetColor(RGB(86, 180, 233)); // colorblind-safe
 
-        ShowMOMOOutsideRTH.Name = "Show MOMOC outside 09:30–16:00 ET (testing only)";
-        ShowMOMOOutsideRTH.SetYesNo(0);
+        DDevNegativeColor.Name = "DDev Color Below 0";
+        DDevNegativeColor.SetColor(RGB(213, 94, 0)); // colorblind-safe
 
         // ===== RS vs QQQ additions: default inputs =====
         EnableRS.Name = "RS vs QQQ: Enable";
@@ -162,6 +171,9 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         RS_DownColor.Name = "RS Down Arrow Color (Weaker than QQQ)";
         RS_DownColor.SetColor(RGB(255, 140, 0)); // orange
 
+        DDevNearZeroColor.Name = "DDev Color Near/At 0";
+        DDevNearZeroColor.SetColor(RGB(240, 228, 66)); // Okabe-Ito yellow
+
         // ===== RS vs QQQ additions: subgraphs =====
         sc.Subgraph[7].Name = "RS Up Arrow (vs QQQ)";
         sc.Subgraph[7].DrawStyle = DRAWSTYLE_TRIANGLE_UP;
@@ -183,6 +195,8 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     sc.Subgraph[0].SecondaryColor= BearishBarColor.GetColor();
     sc.Subgraph[1].PrimaryColor  = UpperBandColor.GetColor();
     sc.Subgraph[2].PrimaryColor  = LowerBandColor.GetColor();
+    sc.Subgraph[4].PrimaryColor  = DDevPositiveColor.GetColor();
+    sc.Subgraph[4].SecondaryColor= DDevNegativeColor.GetColor();
     // ===== RS vs QQQ additions: keep arrow colors in sync =====
     sc.Subgraph[7].PrimaryColor  = RS_UpColor.GetColor();
     sc.Subgraph[8].PrimaryColor  = RS_DownColor.GetColor();
@@ -239,8 +253,12 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         return;
     }
 
-    // -------------------- ATR distance & bands --------------------
+    // -------------------- ATR distance, Dev/DDev, and bands --------------------
     float DistanceFromVWAP = (CurrentPrice - VWAPValue) / DailyATRValue;
+    const float Dev = DistanceFromVWAP;
+    const float PrevDev = sc.Subgraph[3][idx - 1];
+    const float DDev = Dev - PrevDev;
+    const float NearZeroThreshold = fabsf(DDevNearZeroThreshold.GetFloat());
     float Threshold = OverboughtOversoldThreshold.GetFloat();
 
     float UpperBand = VWAPValue + (Threshold * DailyATRValue);
@@ -248,6 +266,16 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 
     sc.Subgraph[1][idx] = UpperBand;
     sc.Subgraph[2][idx] = LowerBand;
+    sc.Subgraph[3][idx] = Dev;
+    sc.Subgraph[4][idx] = DDev;
+    sc.Subgraph[5][idx] = 0.0f;
+
+    if (fabsf(DDev) <= NearZeroThreshold)
+        sc.Subgraph[4].DataColor[idx] = DDevNearZeroColor.GetColor();
+    else if (DDev > 0.0f)
+        sc.Subgraph[4].DataColor[idx] = DDevPositiveColor.GetColor();
+    else
+        sc.Subgraph[4].DataColor[idx] = DDevNegativeColor.GetColor();
 
     // Color bars
     sc.Subgraph[0][idx] = 1.0f;
@@ -260,135 +288,7 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
     else
         sc.Subgraph[0].DataColor[idx] = BullishBarColor.GetColor();
 
-    // -------------------- MOMOC/MOMO event counts (RTH only) --------------------
-    // Chart must be set to US/Eastern (New York) or adjust below.
     const SCDateTime BarDT = sc.BaseDateTimeIn[idx];
-    int Year = 0, Month = 0, Day = 0;
-    BarDT.GetDateYMD(Year, Month, Day);
-    const int DateKey = Year * 10000 + Month * 100 + Day;
-
-    const int BarHH = BarDT.GetHour();
-    const int BarMM = BarDT.GetMinute();
-    const int TMin   = BarHH * 60 + BarMM;
-
-    const bool InRTH  = (TMin >= 570 && TMin < 960); // 09:30–16:00
-    bool PrevInRTH = false;
-    if (idx > 0)
-    {
-        const SCDateTime PrevDT = sc.BaseDateTimeIn[idx - 1];
-        const int PrevMin = PrevDT.GetHour() * 60 + PrevDT.GetMinute();
-        PrevInRTH = (PrevMin >= 570 && PrevMin < 960);
-    }
-
-    // Persistent state
-    double& SessionHigh = sc.GetPersistentDouble(1);
-    double& SessionLow  = sc.GetPersistentDouble(2);
-    int&    LastSessionDate = sc.GetPersistentInt(3);
-
-    int&    SessionCumHighs = sc.GetPersistentInt(4);
-    int&    SessionCumLows  = sc.GetPersistentInt(5);
-
-    int&    LastBarIndexRef = sc.GetPersistentInt(6);
-    double& LastSeenHighForCount = sc.GetPersistentDouble(7);
-    double& LastSeenLowForCount  = sc.GetPersistentDouble(8);
-
-    int&    PersistBarMOMOC_H = sc.GetPersistentInt(9);
-    int&    PersistBarMOMOC_L = sc.GetPersistentInt(10);
-
-    // Initialize at very first bar of full calc
-    if (idx == 0)
-    {
-        SessionHigh = 0.0;
-        SessionLow  = 0.0;
-        LastSessionDate = 0;
-        SessionCumHighs = 0;
-        SessionCumLows  = 0;
-        LastBarIndexRef = -1;
-        LastSeenHighForCount = 0.0;
-        LastSeenLowForCount  = 0.0;
-        PersistBarMOMOC_H = 0;
-        PersistBarMOMOC_L = 0;
-    }
-
-    const bool StartOfRTH = InRTH && (!PrevInRTH || DateKey != LastSessionDate);
-
-    if (StartOfRTH)
-    {
-        // Reset session baselines at 09:30 bar
-        SessionHigh = sc.Open[idx];
-        SessionLow  = sc.Open[idx];
-        LastSeenHighForCount = SessionHigh;
-        LastSeenLowForCount  = SessionLow;
-
-        SessionCumHighs = 0;
-        SessionCumLows  = 0;
-
-        PersistBarMOMOC_H = 0;
-        PersistBarMOMOC_L = 0;
-        LastBarIndexRef = idx;
-        LastSessionDate = DateKey;
-    }
-
-    // Begin per-bar handling (either during RTH, or outside if user wants to see MOMOC)
-    const bool AllowShowOutside = (ShowMOMOOutsideRTH.GetYesNo() != 0);
-
-    if (InRTH || AllowShowOutside)
-    {
-        // On new bar, reset per‑bar accumulators and sync "last seen" extremes to current session extremes
-        if (idx != LastBarIndexRef)
-        {
-            PersistBarMOMOC_H = 0;
-            PersistBarMOMOC_L = 0;
-            LastBarIndexRef = idx;
-
-            // Align last-seen sentinel to current session extremes
-            LastSeenHighForCount = SessionHigh;
-            LastSeenLowForCount  = SessionLow;
-        }
-
-        // Update counts only during RTH
-        if (InRTH)
-        {
-            // Straight event count: +1 each time a NEW session high/low is set
-            if (sc.High[idx] > LastSeenHighForCount)
-            {
-                PersistBarMOMOC_H += 1;
-                SessionCumHighs   += 1;
-                LastSeenHighForCount = sc.High[idx];
-                SessionHigh = sc.High[idx];
-            }
-            if (sc.Low[idx] < LastSeenLowForCount)
-            {
-                PersistBarMOMOC_L += 1;
-                SessionCumLows    += 1;
-                LastSeenLowForCount = sc.Low[idx];
-                SessionLow = sc.Low[idx];
-            }
-            LastSessionDate = DateKey;
-        }
-
-        // Save to subgraphs
-        sc.Subgraph[3][idx] = (float)PersistBarMOMOC_H;
-        sc.Subgraph[4][idx] = (float)PersistBarMOMOC_L;
-        sc.Subgraph[5][idx] = (float)SessionCumHighs;
-        sc.Subgraph[6][idx] = (float)SessionCumLows;
-    }
-    else
-    {
-        // Outside RTH and not showing MOMOC: zero the per-bar display; keep session totals flat
-        sc.Subgraph[3][idx] = 0.0f;
-        sc.Subgraph[4][idx] = 0.0f;
-        if (idx > 0)
-        {
-            sc.Subgraph[5][idx] = sc.Subgraph[5][idx - 1];
-            sc.Subgraph[6][idx] = sc.Subgraph[6][idx - 1];
-        }
-        else
-        {
-            sc.Subgraph[5][idx] = 0.0f;
-            sc.Subgraph[6][idx] = 0.0f;
-        }
-    }
 
     // ===== RS vs QQQ additions: compute & draw arrows =====
     if (EnableRS.GetYesNo())
@@ -521,32 +421,12 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         Tool.BeginIndex = idx;
         Tool.BeginValue = (float)(sc.High[idx] + ticksize * effectiveOffsetTicks);
 
-        // ---- Build lines in requested order: MOMOC -> MOMO -> 9:30/16:00 -> VWAP ----
-        SCString lineMOMOC;
-        SCString lineMOMO;
+        // ---- Build lines in requested order: Dev -> DDev -> 9:30/16:00 ----
+        SCString lineDev;
+        SCString lineDDev;
         SCString lineRef;
-        SCString lineVWAP;
-
-        if (EnableMOMO.GetYesNo())
-        {
-            int momocH = (int)sc.Subgraph[3][idx];
-            int momocL = (int)sc.Subgraph[4][idx];
-
-            int momoH  = SessionCumHighs; // persistent totals
-            int momoL  = SessionCumLows;
-
-            const bool ShowNow = InRTH || (ShowMOMOOutsideRTH.GetYesNo() != 0);
-            if (ShowNow)
-                lineMOMOC.Format("MOMOC: H:%d  L:%d", momocH, momocL);
-            else
-                lineMOMOC = "MOMOC: —";
-            lineMOMO.Format("MOMO:  H:%d  L:%d", momoH, momoL);
-        }
-        else
-        {
-            lineMOMOC = "MOMOC: (disabled)";
-            lineMOMO  = "MOMO:  (disabled)";
-        }
+        lineDev.Format("Dev: %.2f", roundf(Dev * 100.0f) / 100.0f);
+        lineDDev.Format("DDev: %.2f", roundf(DDev * 100.0f) / 100.0f);
 
         if (!_isnan(ATRDistanceToReferencePrice))
         {
@@ -558,15 +438,11 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
             lineRef.Format("%s: N/A", refPriceLabel.GetChars());
         }
 
-        const float RoundedDistanceFromVWAP = roundf(((sc.Close[idx] - VWAPValue) / DailyATRValue) * 100.0f) / 100.0f;
-        lineVWAP.Format("VWAP: %.2f", RoundedDistanceFromVWAP);
-
         SCString finalText;
-        finalText.Format("%s\n%s\n%s\n%s",
-                         lineMOMOC.GetChars(),
-                         lineMOMO.GetChars(),
-                         lineRef.GetChars(),
-                         lineVWAP.GetChars());
+        finalText.Format("%s\n%s\n%s",
+                         lineDev.GetChars(),
+                         lineDDev.GetChars(),
+                         lineRef.GetChars());
 
         Tool.Text = finalText;
         sc.UseTool(Tool);
