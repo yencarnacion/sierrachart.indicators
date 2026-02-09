@@ -255,10 +255,20 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 
     // -------------------- ATR distance, Dev/DDev, and bands --------------------
     float DistanceFromVWAP = (CurrentPrice - VWAPValue) / DailyATRValue;
-    const float Dev = DistanceFromVWAP;
-    const float PrevDev = sc.Subgraph[3][idx - 1];
-    const float DDev = Dev - PrevDev;
-    const float NearZeroThreshold = fabsf(DDevNearZeroThreshold.GetFloat());
+    const double Dev = ((double)CurrentPrice - (double)VWAPValue) / (double)DailyATRValue;
+
+    // Compute previous Dev directly from source arrays to avoid any display/precision truncation.
+    double PrevDev = Dev;
+    if (idx >= 2)
+    {
+        const float PrevVWAPValue = VWAPArray[idx - 1];
+        const float PrevATRValue = ATRArray[idx - 2];
+        if (PrevVWAPValue != 0.0f && PrevATRValue > 0.0f)
+            PrevDev = ((double)sc.Close[idx - 1] - (double)PrevVWAPValue) / (double)PrevATRValue;
+    }
+
+    const double DDev = Dev - PrevDev;
+    const double NearZeroThreshold = fabs((double)DDevNearZeroThreshold.GetFloat());
     float Threshold = OverboughtOversoldThreshold.GetFloat();
 
     float UpperBand = VWAPValue + (Threshold * DailyATRValue);
@@ -266,13 +276,13 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
 
     sc.Subgraph[1][idx] = UpperBand;
     sc.Subgraph[2][idx] = LowerBand;
-    sc.Subgraph[3][idx] = Dev;
-    sc.Subgraph[4][idx] = DDev;
+    sc.Subgraph[3][idx] = (float)Dev;
+    sc.Subgraph[4][idx] = (float)DDev;
     sc.Subgraph[5][idx] = 0.0f;
 
-    if (fabsf(DDev) <= NearZeroThreshold)
+    if (fabs(DDev) <= NearZeroThreshold)
         sc.Subgraph[4].DataColor[idx] = DDevNearZeroColor.GetColor();
-    else if (DDev > 0.0f)
+    else if (DDev > 0.0)
         sc.Subgraph[4].DataColor[idx] = DDevPositiveColor.GetColor();
     else
         sc.Subgraph[4].DataColor[idx] = DDevNegativeColor.GetColor();
@@ -426,7 +436,7 @@ SCSFExport scsf_VWAPDistanceWithDailyATR(SCStudyInterfaceRef sc)
         SCString lineDDev;
         SCString lineRef;
         lineDev.Format("Dev: %.2f", roundf(Dev * 100.0f) / 100.0f);
-        lineDDev.Format("DDev: %.2f", roundf(DDev * 100.0f) / 100.0f);
+        lineDDev.Format("DDev: %.4f", DDev);
 
         if (!_isnan(ATRDistanceToReferencePrice))
         {
